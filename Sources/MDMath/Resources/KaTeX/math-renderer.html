@@ -1,0 +1,77 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <link rel="stylesheet" href="./katex.min.css" />
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: transparent;
+      overflow: hidden;
+    }
+
+    body {
+      display: inline-block;
+      color: #111827;
+    }
+
+    #root {
+      display: inline-block;
+      padding: 0;
+      margin: 0;
+      white-space: nowrap;
+      transform-origin: top left;
+    }
+
+    #baseline {
+      display: inline-block;
+      width: 0;
+      height: 0;
+      vertical-align: baseline;
+    }
+  </style>
+</head>
+<body>
+  <span id="root"></span><span id="baseline"></span>
+  <script src="./katex.min.js"></script>
+  <script>
+    window.renderMath = function renderMath(payload) {
+      const root = document.getElementById("root");
+      const baseline = document.getElementById("baseline");
+
+      root.innerHTML = "";
+      root.style.fontSize = `${payload.fontSize}px`;
+      root.style.color = payload.foregroundHex;
+
+      try {
+        katex.render(payload.latex, root, {
+          displayMode: payload.displayMode,
+          throwOnError: false,
+          trust: false,
+          strict: "ignore"
+        });
+      } catch (error) {
+        root.textContent = payload.latex;
+      }
+
+      const rootRect = root.getBoundingClientRect();
+      const baselineRect = baseline.getBoundingClientRect();
+      const descent = payload.displayMode
+        ? 0
+        : Math.max(0, rootRect.bottom - baselineRect.top);
+      const ascent = Math.max(0, rootRect.height - descent);
+
+      const result = {
+        width: Math.ceil(rootRect.width),
+        height: Math.ceil(rootRect.height),
+        ascent: Math.ceil(ascent),
+        descent: Math.ceil(descent)
+      };
+
+      return JSON.stringify(result);
+    }
+  </script>
+</body>
+</html>

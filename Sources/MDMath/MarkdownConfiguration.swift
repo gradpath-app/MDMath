@@ -22,7 +22,7 @@ public struct MarkdownConfiguration {
     }
 }
 
-public struct MarkdownTheme {
+public struct MarkdownTheme: @unchecked Sendable {
     public var bodyFont: Font
     public var headingFont: Font
     public var codeFont: Font
