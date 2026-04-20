@@ -63,6 +63,47 @@ struct MarkdownParserTests {
     }
 
     @Test
+    func separatesBlockMathFromAdjacentParagraphs() {
+        let parser = MarkdownParser()
+        let document = parser.parse(
+            markdown: """
+            已知有界区域 $\\Omega$ 由下式围成：
+
+            $$\\iiint_{\\Omega} f(x^2+y^2+z^2)\\, dV$$
+
+            以及行内公式 $E = mc^2$ 在中文文本里应保持良好的 baseline。
+            """
+        )
+
+        #expect(document.blocks.count == 3)
+
+        guard case .paragraph = document.blocks[safe: 0]?.kind else {
+            Issue.record("第一块应为段落")
+            return
+        }
+
+        guard case .math(let math) = document.blocks[safe: 1]?.kind else {
+            Issue.record("第二块应为 block math")
+            return
+        }
+
+        #expect(math.displayMode == .block)
+        #expect(math.latex == "\\iiint_{\\Omega} f(x^2+y^2+z^2)\\, dV")
+
+        guard case .paragraph(let runs) = document.blocks[safe: 2]?.kind else {
+            Issue.record("第三块应为段落")
+            return
+        }
+
+        #expect(runs.contains {
+            if case .math(let inlineMath) = $0 {
+                return inlineMath.displayMode == .inline && inlineMath.latex == "E = mc^2"
+            }
+            return false
+        })
+    }
+
+    @Test
     func marksUnclosedCodeFenceAsUnstableTail() {
         let parser = MarkdownParser()
         let document = parser.parse(
@@ -79,5 +120,12 @@ struct MarkdownParserTests {
             }
             return false
         })
+    }
+}
+
+private extension Array {
+    subscript(safe index: Int) -> Element? {
+        guard indices.contains(index) else { return nil }
+        return self[index]
     }
 }

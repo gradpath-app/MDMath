@@ -319,6 +319,12 @@ private struct InlineTextComposer: View {
                 .foregroundColor(configuration.theme.secondaryTextColor)
 
         case .math(let math):
+            guard math.displayMode == .inline else {
+                return Text(verbatim: math.latex)
+                    .font(configuration.theme.codeFont)
+                    .foregroundColor(configuration.theme.secondaryTextColor)
+            }
+
             let request = MathRenderRequest(
                 latex: math.latex,
                 displayMode: .inline,

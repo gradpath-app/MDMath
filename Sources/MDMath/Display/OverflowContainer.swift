@@ -16,24 +16,26 @@ struct OverflowContainer<Content: View>: View {
     }
 
     var body: some View {
-        GeometryReader { geometry in
-            let width = geometry.size.width
-            Group {
-                if behavior == .wrap || contentWidth <= max(width, 1) {
+        Group {
+            if behavior == .wrap || contentWidth <= max(containerWidth, 1) {
+                measuredContent
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
                     measuredContent
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        measuredContent
-                    }
                 }
             }
-            .onAppear { containerWidth = width }
-            .onChange(of: width) { _, newValue in
-                containerWidth = newValue
-            }
         }
-        .frame(minHeight: 1)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            GeometryReader { geometry in
+                Color.clear
+                    .onAppear { containerWidth = geometry.size.width }
+                    .onChange(of: geometry.size.width) { _, newValue in
+                        containerWidth = newValue
+                    }
+            }
+        )
     }
 
     private var measuredContent: some View {

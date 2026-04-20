@@ -17,8 +17,7 @@ final class MathRenderService {
 
     func render(request: MathRenderRequest) async -> MathRenderPayload? {
         if let metrics = cache.metrics(for: request),
-           let imageData = cache.imageData(for: request),
-           let image = UIImage(data: imageData) {
+           let image = cache.image(for: request) {
             return MathRenderPayload(metrics: metrics, image: image)
         }
 
@@ -26,7 +25,8 @@ final class MathRenderService {
         cache.insert(
             request: request,
             metrics: payload.metrics,
-            imageData: payload.image.pngData()
+            imageData: payload.image.pngData(),
+            imageScale: payload.image.scale
         )
         return payload
     }
@@ -46,7 +46,8 @@ private final class MathWebViewPool {
 @MainActor
 private final class MathWebView: NSObject, WKNavigationDelegate {
     private let webView: WKWebView
-    private var readinessContinuation: CheckedContinuation<Void, Never>?
+    private var templateIsReady = false
+    private var readinessContinuation: CheckedContinuation<Bool, Never>?
 
     override init() {
         let configuration = WKWebViewConfiguration()
@@ -66,14 +67,14 @@ private final class MathWebView: NSObject, WKNavigationDelegate {
         guard let templateURL = Bundle.module.url(
             forResource: "math-renderer",
             withExtension: "html",
-            subdirectory: "Resources/KaTeX"
+            subdirectory: "KaTeX"
         ) else {
             return nil
         }
 
-        let baseURL = templateURL.deletingLastPathComponent()
-        webView.loadFileURL(templateURL, allowingReadAccessTo: baseURL)
-        await awaitReadiness()
+        guard await loadTemplateIfNeeded(from: templateURL) else {
+            return nil
+        }
 
         let script = """
         window.renderMath(\(serializedJSON(for: request)));
@@ -102,17 +103,36 @@ private final class MathWebView: NSObject, WKNavigationDelegate {
             return nil
         }
 
-        return MathRenderPayload(metrics: metrics, image: image)
+        return MathRenderPayload(metrics: metrics, image: normalizedImage(from: image, metrics: metrics))
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        readinessContinuation?.resume()
+        templateIsReady = true
+        readinessContinuation?.resume(returning: true)
         readinessContinuation = nil
     }
 
-    private func awaitReadiness() async {
-        await withCheckedContinuation { continuation in
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        templateIsReady = false
+        readinessContinuation?.resume(returning: false)
+        readinessContinuation = nil
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        templateIsReady = false
+        readinessContinuation?.resume(returning: false)
+        readinessContinuation = nil
+    }
+
+    private func loadTemplateIfNeeded(from templateURL: URL) async -> Bool {
+        if templateIsReady {
+            return true
+        }
+
+        let baseURL = templateURL.deletingLastPathComponent()
+        return await withCheckedContinuation { continuation in
             readinessContinuation = continuation
+            webView.loadFileURL(templateURL, allowingReadAccessTo: baseURL)
         }
     }
 
@@ -125,6 +145,28 @@ private final class MathWebView: NSObject, WKNavigationDelegate {
         )
         let data = try? JSONEncoder().encode(payload)
         return String(data: data ?? Data("{}".utf8), encoding: .utf8) ?? "{}"
+    }
+
+    private func normalizedImage(
+        from image: UIImage,
+        metrics: MathLayoutCache.Metrics
+    ) -> UIImage {
+        guard
+            metrics.width > 0,
+            metrics.height > 0
+        else {
+            return image
+        }
+
+        let targetSize = CGSize(width: metrics.width, height: metrics.height)
+        let format = UIGraphicsImageRendererFormat()
+        format.opaque = false
+        format.scale = UIScreen.main.scale
+
+        let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
+        return renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: targetSize))
+        }
     }
 }
 

@@ -14,7 +14,8 @@ let package = Package(
         )
     ],
     dependencies: [
-        .package(url: "https://github.com/swiftlang/swift-markdown.git", from: "0.7.0")
+        .package(url: "https://github.com/swiftlang/swift-markdown.git", from: "0.7.0"),
+        .package(url: "https://github.com/pointfreeco/swift-snapshot-testing", from: "1.18.7")
     ],
     targets: [
         .target(
@@ -23,12 +24,15 @@ let package = Package(
                 .product(name: "Markdown", package: "swift-markdown")
             ],
             resources: [
-                .process("Resources")
+                .copy("Resources/KaTeX")
             ]
         ),
         .testTarget(
             name: "MDMathTests",
-            dependencies: ["MDMath"]
+            dependencies: [
+                "MDMath",
+                .product(name: "SnapshotTesting", package: "swift-snapshot-testing")
+            ]
         )
     ],
     swiftLanguageModes: [.v6]

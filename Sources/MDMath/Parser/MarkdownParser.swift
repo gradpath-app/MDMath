@@ -85,7 +85,7 @@ private struct MarkdownASTVisitor {
             if inlineContent.count == 1, case .image(let alt, let source) = inlineContent[0] {
                 return [makeBlock(.image(source: source, alt: alt), stable: stable)]
             }
-            if inlineContent.count == 1, case .math(let math) = inlineContent[0], math.displayMode == .block {
+            if let math = standaloneBlockMath(in: inlineContent) {
                 return [makeBlock(.math(math), stable: stable)]
             }
             return [makeBlock(.paragraph(inlineContent), stable: stable)]
@@ -266,6 +266,25 @@ private struct MarkdownASTVisitor {
         }
 
         return merged
+    }
+
+    private func standaloneBlockMath(in content: [RenderInline]) -> MathNode? {
+        let meaningful = content.filter { inline in
+            switch inline {
+            case .text(let text):
+                !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            case .softBreak, .lineBreak:
+                false
+            default:
+                true
+            }
+        }
+
+        guard meaningful.count == 1, case .math(let math) = meaningful[0], math.displayMode == .block else {
+            return nil
+        }
+
+        return math
     }
 
     private func makeBlock(_ kind: RenderBlockKind, stable: Bool) -> RenderBlock {

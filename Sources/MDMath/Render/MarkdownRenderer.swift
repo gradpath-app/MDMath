@@ -1,4 +1,7 @@
 import Foundation
+#if os(iOS)
+import UIKit
+#endif
 
 struct RenderedDocumentModel: Hashable {
     var blocks: [RenderedBlock]
@@ -74,24 +77,29 @@ final class MathLayoutCache {
     private(set) var requestCount = 0
     private var metricsStorage: [MathRenderRequest: Metrics] = [:]
     private var imageStorage: [MathRenderRequest: Data] = [:]
+    private var imageScaleStorage: [MathRenderRequest: CGFloat] = [:]
 
     func metrics(for request: MathRenderRequest) -> Metrics? {
         metricsStorage[request]
     }
 
-    func imageData(for request: MathRenderRequest) -> Data? {
-        imageStorage[request]
+    func image(for request: MathRenderRequest) -> UIImage? {
+        guard let data = imageStorage[request] else { return nil }
+        let scale = imageScaleStorage[request] ?? 1
+        return UIImage(data: data, scale: scale)
     }
 
     func insert(
         request: MathRenderRequest,
         metrics: Metrics,
-        imageData: Data?
+        imageData: Data?,
+        imageScale: CGFloat?
     ) {
         requestCount += 1
         metricsStorage[request] = metrics
         if let imageData {
             imageStorage[request] = imageData
+            imageScaleStorage[request] = imageScale ?? 1
         }
     }
 }
