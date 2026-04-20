@@ -32,6 +32,27 @@ struct MarkdownStreamDocumentTests {
     }
 
     @Test
+    func rendersPlainChineseTextSynchronously() {
+        let coordinator = MarkdownCoordinator()
+        let rendered = coordinator.renderedDocument(
+            markdown: "高等数学",
+            toolCalls: [],
+            configuration: .init(),
+            layoutWidth: nil
+        )
+
+        #expect(rendered.blocks.count == 1)
+        guard case .paragraph(let runs) = rendered.blocks.first?.content else {
+            Issue.record("应渲染为段落块")
+            return
+        }
+        #expect(runs.contains {
+            if case .text(let t) = $0 { return t == "高等数学" }
+            return false
+        })
+    }
+
+    @Test
     func keepsUniqueIDsAcrossStablePrefixAndTail() async {
         let coordinator = MarkdownCoordinator()
         let rendered = coordinator.renderedDocument(

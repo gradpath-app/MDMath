@@ -80,11 +80,15 @@ private final class MathWebView: NSObject, WKNavigationDelegate {
         window.renderMath(\(serializedJSON(for: request)));
         """
 
+        // Use a large canvas so KaTeX lays out at full width before we read dimensions.
+        webView.frame = CGRect(x: 0, y: 0, width: 4000, height: 2000)
+
         guard
             let rawValue = try? await webView.evaluateJavaScript(script) as? String,
             let data = rawValue.data(using: .utf8),
             let result = try? JSONDecoder().decode(MathJavaScriptResult.self, from: data)
         else {
+            webView.frame = CGRect(x: 0, y: 0, width: 4, height: 4)
             return nil
         }
 
@@ -95,14 +99,17 @@ private final class MathWebView: NSObject, WKNavigationDelegate {
             descent: result.descent
         )
 
-        webView.frame = CGRect(x: 0, y: 0, width: max(result.width, 1), height: max(result.height, 1))
-        let configuration = WKSnapshotConfiguration()
-        configuration.rect = webView.bounds
+        // Crop snapshot to exact math bounds without resizing the frame
+        // (resizing after layout causes the web engine to re-flow before the snapshot is ready).
+        let snapshotConfig = WKSnapshotConfiguration()
+        snapshotConfig.rect = CGRect(x: 0, y: 0, width: max(result.width, 1), height: max(result.height, 1))
 
-        guard let image = try? await webView.takeSnapshot(configuration: configuration) else {
+        guard let image = try? await webView.takeSnapshot(configuration: snapshotConfig) else {
+            webView.frame = CGRect(x: 0, y: 0, width: 4, height: 4)
             return nil
         }
 
+        webView.frame = CGRect(x: 0, y: 0, width: 4, height: 4)
         return MathRenderPayload(metrics: metrics, image: normalizedImage(from: image, metrics: metrics))
     }
 

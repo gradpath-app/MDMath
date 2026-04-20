@@ -158,6 +158,40 @@ struct MarkdownParserTests {
     }
 
     @Test
+    func parsesPlainChineseTextAsParagraph() {
+        let parser = MarkdownParser()
+        let document = parser.parse(markdown: "高等数学")
+
+        #expect(document.blocks.count == 1)
+        guard case .paragraph(let runs) = document.blocks.first?.kind else {
+            Issue.record("应解析为段落")
+            return
+        }
+        #expect(runs.count == 1)
+        guard case .text(let text) = runs.first else {
+            Issue.record("段落内容应为纯文本")
+            return
+        }
+        #expect(text == "高等数学")
+    }
+
+    @Test
+    func parsesPlainTextWithNoMathTokens() {
+        let parser = MarkdownParser()
+        let document = parser.parse(markdown: "线性代数与概率论")
+
+        guard case .paragraph(let runs) = document.blocks.first?.kind else {
+            Issue.record("应解析为段落")
+            return
+        }
+        let textRuns = runs.compactMap { inline -> String? in
+            if case .text(let t) = inline { return t }
+            return nil
+        }
+        #expect(textRuns.joined() == "线性代数与概率论")
+    }
+
+    @Test
     func parserBuildsToolNodesAndStreamingToolArgumentPlaceholder() {
         let parser = MarkdownParser()
         let document = parser.parse(

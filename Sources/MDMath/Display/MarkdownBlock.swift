@@ -5,15 +5,19 @@ public struct MarkdownBlock: View {
     public let markdown: String
     public let configuration: MarkdownConfiguration
 
-    @State private var model = StaticMarkdownModel()
+    @State private var model: StaticMarkdownModel
     @State private var layoutWidth: CGFloat?
 
+    @MainActor
     public init(
         markdown: String,
         configuration: MarkdownConfiguration = .init()
     ) {
         self.markdown = markdown
         self.configuration = configuration
+        let model = StaticMarkdownModel()
+        model.update(markdown: markdown, configuration: configuration, layoutWidth: nil)
+        self._model = State(initialValue: model)
     }
 
     public var body: some View {
@@ -35,15 +39,19 @@ public struct MarkdownInline: View {
     public let markdown: String
     public let configuration: MarkdownConfiguration
 
-    @State private var model = StaticMarkdownModel()
+    @State private var model: StaticMarkdownModel
     @State private var layoutWidth: CGFloat?
 
+    @MainActor
     public init(
         markdown: String,
         configuration: MarkdownConfiguration = .init()
     ) {
         self.markdown = markdown
         self.configuration = configuration
+        let model = StaticMarkdownModel()
+        model.update(markdown: markdown, configuration: configuration, layoutWidth: nil)
+        self._model = State(initialValue: model)
     }
 
     public var body: some View {
