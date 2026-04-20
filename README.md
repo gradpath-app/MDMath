@@ -42,7 +42,7 @@
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/your-org/MDMath.git", branch: "main")
+    .package(url: "https://github.com/gradpath-app/MDMath.git", branch: "main")
 ]
 ```
 
