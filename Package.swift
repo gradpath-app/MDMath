@@ -17,7 +17,8 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/swiftlang/swift-markdown.git", from: "0.7.3"),
-        .package(url: "https://github.com/colinc86/LaTeXSwiftUI.git", from: "2.0.0"),
+        .package(url: "https://github.com/colinc86/LaTeXSwiftUI.git", exact: "1.5.0"),
+        .package(url: "https://github.com/colinc86/MathJaxSwift", exact: "3.4.0"),
     ],
     targets: [
         .target(
