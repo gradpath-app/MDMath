@@ -4,34 +4,46 @@ import Markdown
 enum MarkdownMathParser {
     static func parse(
         _ source: String,
-        renderMode: MarkdownMath.RenderMode
+        renderMode: MarkdownMath.RenderMode,
+        resourceOptions: MarkdownMathResourceOptions = .init()
     ) -> MarkdownMathDocument {
         let normalizedSource = renderMode == .streaming
             ? MarkdownStreamNormalizer.normalize(source)
             : source
         let extracted = MarkdownMathExtractor.extract(from: normalizedSource)
         let document = Document(parsing: extracted.markdown)
-        let blocks = document.children.compactMap { convertBlock($0, extracted: extracted) }
+        let blocks = document.children.compactMap {
+            convertBlock($0, extracted: extracted, resourceOptions: resourceOptions)
+        }
         return MarkdownMathDocument(blocks: blocks)
     }
 
     private static func convertBlock(
         _ markup: Markup,
-        extracted: ExtractedMathDocument
+        extracted: ExtractedMathDocument,
+        resourceOptions: MarkdownMathResourceOptions
     ) -> MarkdownMathBlock? {
         if let heading = markup as? Heading {
-            let inline = inlineMarkdown(from: heading, extracted: extracted)
+            let inline = inlineMarkdown(from: heading, extracted: extracted, resourceOptions: resourceOptions)
             return .heading(level: heading.level, text: restoreInlineMath(inline, extracted: extracted))
         }
 
         if let paragraph = markup as? Paragraph {
-            let inline = inlineMarkdown(from: paragraph, extracted: extracted)
+            let inline = inlineMarkdown(
+                from: paragraph,
+                extracted: extracted,
+                resourceOptions: resourceOptions
+            )
 
             if let blockMath = standaloneBlockMath(inline: inline, extracted: extracted) {
                 return .mathBlock(blockMath.originalSource)
             }
 
-            if let image = standaloneImage(in: paragraph, extracted: extracted) {
+            if let image = standaloneImage(
+                in: paragraph,
+                extracted: extracted,
+                resourceOptions: resourceOptions
+            ) {
                 return image
             }
 
@@ -39,19 +51,25 @@ enum MarkdownMathParser {
         }
 
         if let quote = markup as? BlockQuote {
-            return .blockquote(quote.children.compactMap { convertBlock($0, extracted: extracted) })
+            return .blockquote(quote.children.compactMap {
+                convertBlock($0, extracted: extracted, resourceOptions: resourceOptions)
+            })
         }
 
         if let unorderedList = markup as? UnorderedList {
             let items = Array(unorderedList.listItems.map { listItem in
-                listItem.children.compactMap { convertBlock($0, extracted: extracted) }
+                listItem.children.compactMap {
+                    convertBlock($0, extracted: extracted, resourceOptions: resourceOptions)
+                }
             })
             return .unorderedList(items: items)
         }
 
         if let orderedList = markup as? OrderedList {
             let items = Array(orderedList.listItems.map { listItem in
-                listItem.children.compactMap { convertBlock($0, extracted: extracted) }
+                listItem.children.compactMap {
+                    convertBlock($0, extracted: extracted, resourceOptions: resourceOptions)
+                }
             })
             return .orderedList(start: Int(orderedList.startIndex), items: items)
         }
@@ -65,7 +83,7 @@ enum MarkdownMathParser {
         }
 
         let fallback = restoreInlineMath(
-            inlineMarkdown(from: markup, extracted: extracted),
+            inlineMarkdown(from: markup, extracted: extracted, resourceOptions: resourceOptions),
             extracted: extracted
         )
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -85,16 +103,17 @@ enum MarkdownMathParser {
 
     private static func standaloneImage(
         in paragraph: Paragraph,
-        extracted: ExtractedMathDocument
+        extracted: ExtractedMathDocument,
+        resourceOptions: MarkdownMathResourceOptions
     ) -> MarkdownMathBlock? {
         guard paragraph.childCount == 1, let image = paragraph.child(at: 0) as? Image else {
             return nil
         }
 
         return .image(
-            source: image.source,
+            source: rewrittenAddress(image.source, kind: .image, resourceOptions: resourceOptions),
             alt: restoreInlineMath(
-                inlineMarkdown(from: image, extracted: extracted),
+                inlineMarkdown(from: image, extracted: extracted, resourceOptions: resourceOptions),
                 extracted: extracted
             )
         )
@@ -102,14 +121,18 @@ enum MarkdownMathParser {
 
     private static func inlineMarkdown(
         from markup: Markup,
-        extracted: ExtractedMathDocument
+        extracted: ExtractedMathDocument,
+        resourceOptions: MarkdownMathResourceOptions
     ) -> String {
-        markup.children.map { inlineMarkdownNode($0, extracted: extracted) }.joined()
+        markup.children.map {
+            inlineMarkdownNode($0, extracted: extracted, resourceOptions: resourceOptions)
+        }.joined()
     }
 
     private static func inlineMarkdownNode(
         _ markup: Markup,
-        extracted: ExtractedMathDocument
+        extracted: ExtractedMathDocument,
+        resourceOptions: MarkdownMathResourceOptions
     ) -> String {
         switch markup {
         case let text as Markdown.Text:
@@ -119,28 +142,43 @@ enum MarkdownMathParser {
         case is LineBreak:
             return "  \n"
         case let emphasis as Emphasis:
-            return "*\(inlineMarkdown(from: emphasis, extracted: extracted))*"
+            return "*\(inlineMarkdown(from: emphasis, extracted: extracted, resourceOptions: resourceOptions))*"
         case let strong as Strong:
-            return "**\(inlineMarkdown(from: strong, extracted: extracted))**"
+            return "**\(inlineMarkdown(from: strong, extracted: extracted, resourceOptions: resourceOptions))**"
         case let strikethrough as Strikethrough:
-            return "~~\(inlineMarkdown(from: strikethrough, extracted: extracted))~~"
+            return "~~\(inlineMarkdown(from: strikethrough, extracted: extracted, resourceOptions: resourceOptions))~~"
         case let inlineCode as InlineCode:
             return "`\(inlineCode.code.replacingOccurrences(of: "`", with: "\\`"))`"
         case let link as Link:
-            let label = inlineMarkdown(from: link, extracted: extracted)
-            let destination = MarkdownInlineEscaper.escapeLinkDestination(link.destination ?? "")
+            let label = inlineMarkdown(from: link, extracted: extracted, resourceOptions: resourceOptions)
+            let destination = MarkdownInlineEscaper.escapeLinkDestination(
+                resourceOptions.rewriteAddress(link.destination ?? "", kind: .link)
+            )
             return "[\(label)](\(destination))"
         case let image as Image:
-            let alt = inlineMarkdown(from: image, extracted: extracted)
-            let source = MarkdownInlineEscaper.escapeLinkDestination(image.source ?? "")
+            let alt = inlineMarkdown(from: image, extracted: extracted, resourceOptions: resourceOptions)
+            let source = MarkdownInlineEscaper.escapeLinkDestination(
+                resourceOptions.rewriteAddress(image.source ?? "", kind: .image)
+            )
             return "![\(alt)](\(source))"
         case let html as InlineHTML:
             return html.rawHTML
         case let html as HTMLBlock:
             return html.rawHTML
         default:
-            return inlineMarkdown(from: markup, extracted: extracted)
+            return inlineMarkdown(from: markup, extracted: extracted, resourceOptions: resourceOptions)
         }
+    }
+
+    private static func rewrittenAddress(
+        _ source: String?,
+        kind: MarkdownMathResourceOptions.ResourceKind,
+        resourceOptions: MarkdownMathResourceOptions
+    ) -> String? {
+        guard let source else {
+            return nil
+        }
+        return resourceOptions.rewriteAddress(source, kind: kind)
     }
 
     private static func restoreInlineMath(

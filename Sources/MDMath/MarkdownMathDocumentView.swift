@@ -5,6 +5,7 @@ struct MarkdownMathDocumentView: View {
     let document: MarkdownMathDocument
     let theme: MarkdownMathTheme
     let renderMode: MarkdownMath.RenderMode
+    let resourceOptions: MarkdownMathResourceOptions
 
     var body: some View {
         VStack(alignment: .leading, spacing: theme.blockSpacing) {
@@ -97,7 +98,7 @@ struct MarkdownMathDocumentView: View {
             })
 
         case let .image(source, alt):
-            if let source, let url = URL(string: source) {
+            if let source, let url = resourceOptions.resolveImageURL(for: source) {
                 return AnyView(VStack(alignment: .leading, spacing: 8) {
                     AsyncImage(url: url) { phase in
                         switch phase {

@@ -75,6 +75,7 @@ SwiftUI Rendering + LaTeXSwiftUI
 
 - 使用 `swift-markdown` 解析块级结构
 - 转换成包内部更稳定的块模型
+- 在转换 inline link / image 与 block image 时应用资源地址重写规则
 
 为什么不直接把 AST 渲染成 SwiftUI：
 
@@ -105,6 +106,7 @@ SwiftUI Rendering + LaTeXSwiftUI
 - 将内部块模型映射到 SwiftUI
 - inline / block 数学统一使用 `LaTeXSwiftUI`
 - 控制滚动、字号、留白、容器样式
+- block 图片可通过自定义 resolver 将相对地址转成 App 内可加载的 `URL`
 
 核心策略：
 

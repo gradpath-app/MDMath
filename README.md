@@ -89,7 +89,8 @@ struct ContentView: View {
 public init(
     _ source: String,
     renderMode: MarkdownMath.RenderMode = .final,
-    theme: MarkdownMathTheme = .init()
+    theme: MarkdownMathTheme = .init(),
+    resourceOptions: MarkdownMathResourceOptions = .init()
 )
 ```
 
@@ -98,6 +99,7 @@ public init(
 - `source`：原始 Markdown 字符串
 - `renderMode`：渲染模式，决定是否启用 streaming 容错
 - `theme`：字号、留白、圆角、公式 baseline 策略等主题配置
+- `resourceOptions`：图片 / 链接地址重写与图片 URL 解析配置
 
 ### `MarkdownMath.RenderMode`
 
@@ -146,6 +148,42 @@ let theme = MarkdownMathTheme(
 ```swift
 MarkdownMath(markdown, renderMode: .streaming, theme: theme)
 ```
+
+### `MarkdownMathResourceOptions`
+
+用于统一处理图片与链接地址。
+
+当前支持：
+
+- 按 prefix 批量重写地址
+- 使用自定义闭包进一步改写地址
+- 为 block 图片提供自定义 `URL` 解析逻辑，便于对接 App 内部相对路径
+
+示例：
+
+```swift
+let resourceOptions = MarkdownMathResourceOptions(
+    prefixRewriteRules: [
+        .init(prefix: "/images/", replacement: "../media/"),
+        .init(prefix: "/docs/", replacement: "gradpath://docs/")
+    ],
+    imageURLResolver: { source in
+        URL(fileURLWithPath: source, relativeTo: Bundle.main.resourceURL)
+    }
+)
+
+MarkdownMath(
+    markdown,
+    renderMode: .final,
+    resourceOptions: resourceOptions
+)
+```
+
+这样：
+
+- `![](/images/abc.png)` 会先改写成 `![](../media/abc.png)`
+- `[](/docs/intro)` 会先改写成 `[](gradpath://docs/intro)`
+- block 图片在渲染时会继续通过 `imageURLResolver` 转成 `AsyncImage` 可加载的 `URL`
 
 ## 支持的数学分隔符
 
