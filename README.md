@@ -2,12 +2,13 @@
 
 基于 `swift-markdown` 与 `LaTeXSwiftUI` 的 SwiftUI Markdown 排版包，目标是为 **AI 输出场景** 提供更稳定的 Markdown + 数学公式混排体验。
 
-当前版本重点解决 4 类问题：
+当前版本重点解决 5 类问题：
 
 - 使用 `swift-markdown` 做块级语义解析，而不是正则拼接整棵视图树
 - 使用 `LaTeXSwiftUI` 统一承接 inline / block 数学公式渲染
 - 面向 AI tool streaming，尽量容忍未闭合代码块与未完成公式
 - 优化 inline baseline、block overflow scroll，并尽量贴合系统字号
+- 为 App 内图片 / 链接资源提供统一的地址重写与图片 URL 解析入口
 
 ## 设计目标
 
@@ -21,8 +22,11 @@
 - 使用 `swift-markdown` 做块级 AST 解析
 - 使用 `LaTeXSwiftUI` 负责 inline / block 数学公式渲染
 - 提供 `MarkdownMath.RenderMode.streaming`
+- 提供 `MarkdownMathResourceOptions` 统一处理 link / image 地址
 - 自动补全未闭合代码围栏（````` / `~~~`）
 - 未闭合数学分隔符不会触发错误解析，而是按普通文本显示
+- link / image 支持 prefix 重写与自定义闭包二次改写
+- block 图片支持自定义 `URL` 解析，适合相对路径或 App 内资源
 - block 公式默认支持超宽时水平滚动
 - inline 数学公式沿用系统字号，并默认按 CJK 文本度量做 baseline 匹配
 - 支持标题、段落、引用、列表、代码块、图片、分隔线等常见块级结构
@@ -31,6 +35,12 @@
 
 - [swift-markdown](https://github.com/swiftlang/swift-markdown)
 - [LaTeXSwiftUI](https://github.com/colinc86/LaTeXSwiftUI)
+
+通过 `LaTeXSwiftUI` 会间接引入：
+
+- `MathJaxSwift`
+- `SwiftDraw`
+- `swift-html-entities`
 
 ## 平台要求
 
@@ -67,6 +77,8 @@ struct ContentView: View {
 
     行内公式 $a^2+b^2=c^2$。
 
+    ![封面](/images/cover.png)
+
     $$
     \\int_0^1 x^2 dx = \\frac{1}{3}
     $$
@@ -74,7 +86,18 @@ struct ContentView: View {
 
     var body: some View {
         ScrollView {
-            MarkdownMath(markdown, renderMode: .streaming)
+            MarkdownMath(
+                markdown,
+                renderMode: .streaming,
+                resourceOptions: .init(
+                    prefixRewriteRules: [
+                        .init(prefix: "/images/", replacement: "media/")
+                    ],
+                    imageURLResolver: { source in
+                        URL(fileURLWithPath: source, relativeTo: Bundle.main.resourceURL)
+                    }
+                )
+            )
                 .padding()
         }
     }
@@ -185,6 +208,32 @@ MarkdownMath(
 - `[](/docs/intro)` 会先改写成 `[](gradpath://docs/intro)`
 - block 图片在渲染时会继续通过 `imageURLResolver` 转成 `AsyncImage` 可加载的 `URL`
 
+地址处理顺序：
+
+1. 先应用 `prefixRewriteRules`
+2. 再调用 `addressTransformer`
+3. 若是 block 图片，渲染阶段再调用 `imageURLResolver`
+
+## 资源地址处理
+
+`MarkdownMathResourceOptions` 会同时作用于：
+
+- inline link
+- inline image
+- 独立段落的 block image
+
+其中：
+
+- link / image 的原始地址会在 parser 阶段完成重写
+- block image 会在渲染阶段继续尝试解析成 `URL`
+- `imageURLResolver` 返回 `nil` 时，会回退到 `URL(string:)`
+
+这让它比较适合这几类场景：
+
+- CMS 内容里用站内相对路径
+- App 内资源目录和线上 URL 混用
+- 自定义 `app://`、`gradpath://` 这样的深链地址
+
 ## 支持的数学分隔符
 
 当前会优先抽取并恢复以下完整数学片段：
@@ -257,6 +306,14 @@ The result is $x^2 +
 - 分隔线
 - 独立 block 数学
 
+inline 层当前支持：
+
+- 强调 / 粗体 / 删除线
+- inline code
+- link
+- image
+- 数学公式占位恢复
+
 ## 当前限制
 
 当前实现还是第一版原型，以下能力尚未补齐：
@@ -305,6 +362,9 @@ swift test
 - 独立 block 数学识别
 - streaming 模式下未闭合数学回退为文本
 - streaming 模式下未闭合代码围栏自动补全
+- block 图片 prefix 重写
+- inline link / image 共享地址重写
+- 自定义图片 URL resolver 优先于默认 `URL(string:)`
 
 ## 路线建议
 
