@@ -13,6 +13,7 @@ public final class MarkdownStreamDocument {
     private let coordinator: MarkdownCoordinator
     private let configuration: MarkdownConfiguration
     private var updateTask: Task<Void, Never>?
+    private var layoutWidth: CGFloat?
 
     public init(
         initialMarkdown: String = "",
@@ -102,12 +103,24 @@ public final class MarkdownStreamDocument {
         rebuild()
     }
 
+    func updateLayoutWidth(_ width: CGFloat?) {
+        guard widthBucket(for: layoutWidth) != widthBucket(for: width) else { return }
+        layoutWidth = width
+        scheduleRebuild()
+    }
+
     private func rebuild() {
         renderedDocument = coordinator.renderedDocument(
             markdown: source,
             toolCalls: Array(toolCalls.values).sorted { $0.id < $1.id },
-            configuration: configuration
+            configuration: configuration,
+            layoutWidth: layoutWidth
         )
         isUpdating = false
+    }
+
+    private func widthBucket(for width: CGFloat?) -> Int {
+        guard let width, width > 0 else { return 0 }
+        return Int((width / 16).rounded(.toNearestOrAwayFromZero))
     }
 }

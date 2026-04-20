@@ -74,7 +74,10 @@ private struct MarkdownRenderedBlockView: View {
             }
 
         case .code(let language, let content):
-            OverflowContainer(behavior: block.layout.overflowBehavior) {
+            OverflowContainer(
+                behavior: block.layout.overflowBehavior,
+                intent: block.layout.overflowIntent
+            ) {
                 VStack(alignment: .leading, spacing: 8) {
                     if let language, !language.isEmpty {
                         Text(language.uppercased())
@@ -90,7 +93,10 @@ private struct MarkdownRenderedBlockView: View {
             }
 
         case .table(let table):
-            OverflowContainer(behavior: block.layout.overflowBehavior) {
+            OverflowContainer(
+                behavior: block.layout.overflowBehavior,
+                intent: block.layout.overflowIntent
+            ) {
                 VStack(spacing: 0) {
                     ForEach(Array(table.rows.enumerated()), id: \.offset) { rowIndex, row in
                         HStack(spacing: 0) {
@@ -129,7 +135,8 @@ private struct MarkdownRenderedBlockView: View {
             MathBlockSnapshotView(
                 request: request,
                 configuration: configuration,
-                overflowBehavior: block.layout.overflowBehavior
+                overflowBehavior: block.layout.overflowBehavior,
+                overflowIntent: block.layout.overflowIntent
             )
 
         case .toolCall(let node):
@@ -153,7 +160,10 @@ private struct MarkdownRenderedBlockView: View {
             .background(configuration.theme.blockBackgroundColor, in: RoundedRectangle(cornerRadius: 14))
 
         case .toolOutput(let language, let content, _):
-            OverflowContainer(behavior: block.layout.overflowBehavior) {
+            OverflowContainer(
+                behavior: block.layout.overflowBehavior,
+                intent: block.layout.overflowIntent
+            ) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(language?.uppercased() ?? "OUTPUT")
                         .font(.caption.monospaced())
@@ -336,7 +346,7 @@ private struct InlineTextComposer: View {
 
             if let payload = mathSnapshots[request] {
                 return Text(Image(uiImage: payload.image))
-                    .baselineOffset(-payload.metrics.descent)
+                    .baselineOffset(-min(payload.metrics.descent, payload.metrics.height * 0.35))
             }
 
             return Text("□")
@@ -355,27 +365,46 @@ private struct MathBlockSnapshotView: View {
     let request: MathRenderRequest
     let configuration: MarkdownConfiguration
     let overflowBehavior: MarkdownOverflowBehavior
+    let overflowIntent: RenderedBlock.OverflowLayoutIntent
 
     @State private var payload: MathRenderPayload?
 
     var body: some View {
-        OverflowContainer(behavior: overflowBehavior) {
+        OverflowContainer(behavior: overflowBehavior, intent: effectiveOverflowIntent) {
             Group {
                 if let payload {
-                    Image(uiImage: payload.image)
-                        .renderingMode(.original)
+                    if effectiveOverflowIntent == .scroll {
+                        Image(uiImage: payload.image)
+                            .renderingMode(.original)
+                            .fixedSize()
+                    } else {
+                        Image(uiImage: payload.image)
+                            .renderingMode(.original)
+                            .frame(maxWidth: .infinity, alignment: alignment)
+                    }
                 } else {
                     ProgressView()
                         .frame(maxWidth: .infinity, alignment: alignment)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: alignment)
         }
         .task(id: request) {
             if payload == nil {
                 payload = await MathRenderService.shared.render(request: request)
             }
         }
+    }
+
+    private var effectiveOverflowIntent: RenderedBlock.OverflowLayoutIntent {
+        guard
+            let payload,
+            let widthConstraint = request.widthConstraint,
+            overflowBehavior == .scrollIfNeeded
+        else {
+            return overflowIntent
+        }
+
+        return payload.metrics.width > widthConstraint ? .scroll : .natural
     }
 
     private var alignment: Alignment {

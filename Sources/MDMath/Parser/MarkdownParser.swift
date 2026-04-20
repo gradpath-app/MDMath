@@ -5,19 +5,19 @@ import Markdown
 struct MarkdownParser {
     func parse(
         markdown source: String,
-        appendedToolBlocks: [RenderBlock] = []
+        toolCalls: [ToolCallNode] = []
     ) -> RenderDocument {
         let scanner = MathTokenScanner()
         let scan = scanner.scan(source)
         let document = Document(parsing: scan.protectedMarkdown)
         let visitor = MarkdownASTVisitor(mathTokens: scan.tokens)
         var blocks = visitor.blocks(from: document)
-        blocks.append(contentsOf: appendedToolBlocks)
+        blocks.append(contentsOf: toolBlocks(from: toolCalls))
 
         if scan.hasUnmatchedCodeFence {
             blocks.append(
                 RenderBlock(
-                    id: Self.blockID(prefix: "incomplete", source: source),
+                    id: "",
                     stableKey: Self.blockStableKey(prefix: "incomplete-code", source: source),
                     kind: .incomplete(.init(kind: .codeFence, preview: source)),
                     isStable: false
@@ -26,7 +26,7 @@ struct MarkdownParser {
         } else if scan.hasUnmatchedBlockMath {
             blocks.append(
                 RenderBlock(
-                    id: Self.blockID(prefix: "incomplete", source: source),
+                    id: "",
                     stableKey: Self.blockStableKey(prefix: "incomplete-block-math", source: source),
                     kind: .incomplete(.init(kind: .blockMath, preview: source)),
                     isStable: false
@@ -35,7 +35,7 @@ struct MarkdownParser {
         } else if scan.hasUnmatchedInlineMath {
             blocks.append(
                 RenderBlock(
-                    id: Self.blockID(prefix: "incomplete", source: source),
+                    id: "",
                     stableKey: Self.blockStableKey(prefix: "incomplete-inline-math", source: source),
                     kind: .incomplete(.init(kind: .inlineMath, preview: source)),
                     isStable: false
@@ -43,10 +43,35 @@ struct MarkdownParser {
             )
         }
 
+        if let preview = incompleteTablePreview(in: source) {
+            blocks.append(
+                RenderBlock(
+                    id: "",
+                    stableKey: Self.blockStableKey(prefix: "incomplete-table", source: preview),
+                    kind: .incomplete(.init(kind: .table, preview: preview)),
+                    isStable: false
+                )
+            )
+        }
+
+        blocks = Self.assignUniqueIDs(to: blocks)
+
+        let hasIncompleteToolArguments = toolCalls.contains { $0.state == .streaming }
+        let hasIncompleteTable = blocks.contains {
+            if case .incomplete(let node) = $0.kind {
+                return node.kind == .table
+            }
+            return false
+        }
+
         return RenderDocument(
             source: source,
             blocks: blocks,
-            unstableTail: scan.hasUnmatchedInlineMath || scan.hasUnmatchedBlockMath || scan.hasUnmatchedCodeFence
+            unstableTail: scan.hasUnmatchedInlineMath ||
+                scan.hasUnmatchedBlockMath ||
+                scan.hasUnmatchedCodeFence ||
+                hasIncompleteTable ||
+                hasIncompleteToolArguments
         )
     }
 
@@ -61,6 +86,164 @@ struct MarkdownParser {
     private static func digest(for source: String) -> String {
         let bytes = SHA256.hash(data: Data(source.utf8))
         return bytes.prefix(8).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func toolBlocks(from toolCalls: [ToolCallNode]) -> [RenderBlock] {
+        toolCalls.flatMap { toolCall -> [RenderBlock] in
+            var blocks: [RenderBlock] = [
+                RenderBlock(
+                    id: "",
+                    stableKey: Self.blockStableKey(
+                        prefix: "tool-call",
+                        source: toolCall.id + ":" + toolCall.name + ":" + toolCall.arguments
+                    ),
+                    kind: .toolCall(toolCall),
+                    isStable: toolCall.state == .completed
+                )
+            ]
+
+            if toolCall.state == .streaming {
+                blocks.append(
+                    RenderBlock(
+                        id: "",
+                        stableKey: Self.blockStableKey(
+                            prefix: "incomplete-tool-arguments",
+                            source: toolCall.id + ":" + toolCall.arguments
+                        ),
+                        kind: .incomplete(.init(kind: .toolArguments, preview: toolCall.arguments)),
+                        isStable: false
+                    )
+                )
+            }
+
+            if let output = toolCall.output {
+                blocks.append(
+                    RenderBlock(
+                        id: "",
+                        stableKey: Self.blockStableKey(
+                            prefix: "tool-output",
+                            source: toolCall.id + ":" + (toolCall.outputLanguage ?? "") + ":" + output
+                        ),
+                        kind: .toolOutput(language: toolCall.outputLanguage, content: output, id: toolCall.id),
+                        isStable: toolCall.state == .completed
+                    )
+                )
+            }
+
+            return blocks
+        }
+    }
+
+    private func incompleteTablePreview(in source: String) -> String? {
+        let lines = source.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        guard let lastNonEmptyIndex = lines.lastIndex(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) else {
+            return nil
+        }
+
+        var start = lastNonEmptyIndex
+        while start > 0, !lines[start - 1].trimmingCharacters(in: .whitespaces).isEmpty {
+            start -= 1
+        }
+
+        let candidate = Array(lines[start...lastNonEmptyIndex])
+        guard let header = candidate.first, looksLikeTableRow(header) else {
+            return nil
+        }
+
+        if candidate.count == 1 {
+            return header
+        }
+
+        let headerPipeCount = pipeCount(in: header)
+        let separator = candidate[1]
+        guard looksLikeSeparatorRow(separator, expectedPipeCount: headerPipeCount) else {
+            return candidate.joined(separator: "\n")
+        }
+
+        let dataRows = candidate.dropFirst(2)
+        guard let lastRow = dataRows.last else {
+            return nil
+        }
+
+        if pipeCount(in: lastRow) < headerPipeCount || !source.hasSuffix("\n") {
+            return candidate.joined(separator: "\n")
+        }
+
+        if dataRows.dropLast().contains(where: { pipeCount(in: $0) < headerPipeCount }) {
+            return candidate.joined(separator: "\n")
+        }
+
+        return nil
+    }
+
+    private func looksLikeTableRow(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard trimmed.contains("|") else { return false }
+        return trimmed.hasPrefix("|") || trimmed.hasSuffix("|") || trimmed.contains(" | ")
+    }
+
+    private func looksLikeSeparatorRow(_ line: String, expectedPipeCount: Int) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard pipeCount(in: trimmed) >= max(expectedPipeCount - 1, 1) else { return false }
+
+        let segments = trimmed
+            .split(separator: "|", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+
+        guard !segments.isEmpty else { return false }
+        return segments.allSatisfy { segment in
+            let core = segment.replacingOccurrences(of: ":", with: "")
+            return core.count >= 3 && core.allSatisfy { $0 == "-" }
+        }
+    }
+
+    private func pipeCount(in line: String) -> Int {
+        line.reduce(into: 0) { count, character in
+            if character == "|" {
+                count += 1
+            }
+        }
+    }
+
+    static func assignUniqueIDs(to blocks: [RenderBlock]) -> [RenderBlock] {
+        var occurrences: [String: Int] = [:]
+        return blocks.map { assignUniqueID(to: $0, occurrences: &occurrences) }
+    }
+
+    private static func assignUniqueID(
+        to block: RenderBlock,
+        occurrences: inout [String: Int]
+    ) -> RenderBlock {
+        var block = block
+
+        switch block.kind {
+        case .quote(let nested):
+            block.kind = .quote(nested.map { assignUniqueID(to: $0, occurrences: &occurrences) })
+
+        case .unorderedList(let items):
+            block.kind = .unorderedList(
+                items.map { item in
+                    item.map { assignUniqueID(to: $0, occurrences: &occurrences) }
+                }
+            )
+
+        case .orderedList(let start, let items):
+            block.kind = .orderedList(
+                start: start,
+                items: items.map { item in
+                    item.map { assignUniqueID(to: $0, occurrences: &occurrences) }
+                }
+            )
+
+        default:
+            break
+        }
+
+        let occurrence = occurrences[block.stableKey, default: 0]
+        occurrences[block.stableKey] = occurrence + 1
+        block.id = "\(block.stableKey)#\(occurrence)"
+        return block
     }
 }
 
@@ -290,7 +473,7 @@ private struct MarkdownASTVisitor {
     private func makeBlock(_ kind: RenderBlockKind, stable: Bool) -> RenderBlock {
         let source = stableSource(for: kind)
         return RenderBlock(
-            id: MarkdownParser.blockID(prefix: "block", source: source),
+            id: "",
             stableKey: MarkdownParser.blockStableKey(prefix: "stable", source: source),
             kind: kind,
             isStable: stable

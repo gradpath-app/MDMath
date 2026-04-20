@@ -6,6 +6,7 @@ public struct MarkdownBlock: View {
     public let configuration: MarkdownConfiguration
 
     @State private var model = StaticMarkdownModel()
+    @State private var layoutWidth: CGFloat?
 
     public init(
         markdown: String,
@@ -17,8 +18,15 @@ public struct MarkdownBlock: View {
 
     public var body: some View {
         MarkdownDocumentStack(rendered: model.renderedDocument, configuration: configuration)
+            .background(MarkdownLayoutWidthReader())
+            .onPreferenceChange(MarkdownLayoutWidthPreferenceKey.self) { width in
+                let normalized = normalize(width: width)
+                guard widthBucket(for: normalized) != widthBucket(for: layoutWidth) else { return }
+                layoutWidth = normalized
+                model.update(markdown: markdown, configuration: configuration, layoutWidth: normalized)
+            }
             .task(id: markdown) {
-                model.update(markdown: markdown, configuration: configuration)
+                model.update(markdown: markdown, configuration: configuration, layoutWidth: layoutWidth)
             }
     }
 }
@@ -28,6 +36,7 @@ public struct MarkdownInline: View {
     public let configuration: MarkdownConfiguration
 
     @State private var model = StaticMarkdownModel()
+    @State private var layoutWidth: CGFloat?
 
     public init(
         markdown: String,
@@ -48,8 +57,15 @@ public struct MarkdownInline: View {
                 EmptyView()
             }
         }
+        .background(MarkdownLayoutWidthReader())
+        .onPreferenceChange(MarkdownLayoutWidthPreferenceKey.self) { width in
+            let normalized = normalize(width: width)
+            guard widthBucket(for: normalized) != widthBucket(for: layoutWidth) else { return }
+            layoutWidth = normalized
+            model.update(markdown: markdown, configuration: configuration, layoutWidth: normalized)
+        }
         .task(id: markdown) {
-            model.update(markdown: markdown, configuration: configuration)
+            model.update(markdown: markdown, configuration: configuration, layoutWidth: layoutWidth)
         }
     }
 }
@@ -68,6 +84,10 @@ public struct StreamingMarkdownBlock: View {
 
     public var body: some View {
         MarkdownDocumentStack(rendered: document.renderedDocument, configuration: configuration)
+            .background(MarkdownLayoutWidthReader())
+            .onPreferenceChange(MarkdownLayoutWidthPreferenceKey.self) { width in
+                document.updateLayoutWidth(normalize(width: width))
+            }
     }
 }
 
@@ -78,11 +98,42 @@ private final class StaticMarkdownModel {
 
     private let coordinator = MarkdownCoordinator()
 
-    func update(markdown: String, configuration: MarkdownConfiguration) {
+    func update(
+        markdown: String,
+        configuration: MarkdownConfiguration,
+        layoutWidth: CGFloat?
+    ) {
         renderedDocument = coordinator.renderedDocument(
             markdown: markdown,
             toolCalls: [],
-            configuration: configuration
+            configuration: configuration,
+            layoutWidth: layoutWidth
         )
     }
+}
+
+private struct MarkdownLayoutWidthPreferenceKey: PreferenceKey {
+    static let defaultValue: CGFloat = .zero
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+private struct MarkdownLayoutWidthReader: View {
+    var body: some View {
+        GeometryReader { geometry in
+            Color.clear
+                .preference(key: MarkdownLayoutWidthPreferenceKey.self, value: geometry.size.width)
+        }
+    }
+}
+
+private func normalize(width: CGFloat) -> CGFloat? {
+    width > 0 ? width : nil
+}
+
+private func widthBucket(for width: CGFloat?) -> Int {
+    guard let width, width > 0 else { return 0 }
+    return Int((width / 16).rounded(.toNearestOrAwayFromZero))
 }

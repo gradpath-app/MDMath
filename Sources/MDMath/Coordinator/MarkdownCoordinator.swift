@@ -12,18 +12,22 @@ final class MarkdownCoordinator {
     func renderedDocument(
         markdown source: String,
         toolCalls: [ToolCallNode],
-        configuration: MarkdownConfiguration
+        configuration: MarkdownConfiguration,
+        layoutWidth: CGFloat?
     ) -> RenderedDocumentModel {
-        let appendedToolBlocks = makeToolBlocks(from: toolCalls)
-        let document = parse(markdown: source, appendedToolBlocks: appendedToolBlocks)
-        return renderer.render(document: document, configuration: configuration)
+        let document = parse(markdown: source, toolCalls: toolCalls)
+        return renderer.render(
+            document: document,
+            configuration: configuration,
+            layoutWidth: layoutWidth
+        )
     }
 
     private func parse(
         markdown source: String,
-        appendedToolBlocks: [RenderBlock]
+        toolCalls: [ToolCallNode]
     ) -> RenderDocument {
-        if appendedToolBlocks.isEmpty, let cached = parserCache.value(for: source) {
+        if toolCalls.isEmpty, let cached = parserCache.value(for: source) {
             return cached
         }
 
@@ -45,50 +49,25 @@ final class MarkdownCoordinator {
             stablePrefixBlocks = stableBlocks
         }
 
-        let tailDocument = parser.parse(markdown: tail, appendedToolBlocks: appendedToolBlocks)
+        let tailDocument = parser.parse(markdown: tail, toolCalls: toolCalls)
         let tailBlocks = tailDocument.blocks.map {
             var block = $0
             block.isStable = false
             return block
         }
 
+        let combinedBlocks = MarkdownParser.assignUniqueIDs(to: stableBlocks + tailBlocks)
         let combined = RenderDocument(
             source: source,
-            blocks: stableBlocks + tailBlocks,
+            blocks: combinedBlocks,
             unstableTail: tailDocument.unstableTail
         )
 
-        if appendedToolBlocks.isEmpty {
+        if toolCalls.isEmpty {
             parserCache.insert(combined, for: source)
         }
 
         return combined
-    }
-
-    private func makeToolBlocks(from toolCalls: [ToolCallNode]) -> [RenderBlock] {
-        toolCalls.flatMap { toolCall -> [RenderBlock] in
-            var blocks: [RenderBlock] = [
-                RenderBlock(
-                    id: MarkdownParser.blockID(prefix: "tool-call", source: toolCall.id + toolCall.arguments),
-                    stableKey: MarkdownParser.blockStableKey(prefix: "tool-call", source: toolCall.id + toolCall.arguments),
-                    kind: .toolCall(toolCall),
-                    isStable: toolCall.state == .completed
-                )
-            ]
-
-            if let output = toolCall.output {
-                blocks.append(
-                    RenderBlock(
-                        id: MarkdownParser.blockID(prefix: "tool-output", source: toolCall.id + output),
-                        stableKey: MarkdownParser.blockStableKey(prefix: "tool-output", source: toolCall.id + output),
-                        kind: .toolOutput(language: toolCall.outputLanguage, content: output, id: toolCall.id),
-                        isStable: toolCall.state == .completed
-                    )
-                )
-            }
-
-            return blocks
-        }
     }
 
     private func stableFrontierIndex(in source: String) -> String.Index {

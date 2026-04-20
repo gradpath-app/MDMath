@@ -30,4 +30,22 @@ struct MarkdownStreamDocumentTests {
             return false
         })
     }
+
+    @Test
+    func keepsUniqueIDsAcrossStablePrefixAndTail() async {
+        let coordinator = MarkdownCoordinator()
+        let rendered = coordinator.renderedDocument(
+            markdown: """
+            重复段落
+
+            重复段落
+            """,
+            toolCalls: [],
+            configuration: .init(),
+            layoutWidth: 320
+        )
+
+        let ids = rendered.blocks.map(\.id)
+        #expect(ids.count == Set(ids).count)
+    }
 }

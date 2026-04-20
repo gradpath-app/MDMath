@@ -121,6 +121,73 @@ struct MarkdownParserTests {
             return false
         })
     }
+
+    @Test
+    func assignsUniqueIDsToDuplicateBlocks() {
+        let parser = MarkdownParser()
+        let document = parser.parse(
+            markdown: """
+            重复段落
+
+            重复段落
+            """
+        )
+
+        let ids = document.blocks.map(\.id)
+        #expect(ids.count == Set(ids).count)
+    }
+
+    @Test
+    func marksIncompleteTableTail() {
+        let parser = MarkdownParser()
+        let document = parser.parse(
+            markdown: """
+            | 字段 | 值 |
+            | --- | --- |
+            | a |
+            """
+        )
+
+        #expect(document.unstableTail)
+        #expect(document.blocks.contains {
+            if case .incomplete(let node) = $0.kind {
+                return node.kind == .table
+            }
+            return false
+        })
+    }
+
+    @Test
+    func parserBuildsToolNodesAndStreamingToolArgumentPlaceholder() {
+        let parser = MarkdownParser()
+        let document = parser.parse(
+            markdown: "先输出正文",
+            toolCalls: [
+                ToolCallNode(
+                    id: "tool-1",
+                    name: "search",
+                    arguments: "{\"q\":\"gradpath\"",
+                    output: nil,
+                    outputLanguage: nil,
+                    state: .streaming
+                )
+            ]
+        )
+
+        #expect(document.blocks.contains {
+            if case .toolCall(let node) = $0.kind {
+                return node.id == "tool-1" && node.name == "search"
+            }
+            return false
+        })
+
+        #expect(document.blocks.contains {
+            if case .incomplete(let node) = $0.kind {
+                return node.kind == .toolArguments
+            }
+            return false
+        })
+    }
 }
 
 private extension Array {
